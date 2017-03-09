@@ -1,6 +1,4 @@
-#!/bin/sh -ex
-reset
-
+#!/bin/sh -e
 ################################################################################
 # variables
 ## filesystem and source tarballs
@@ -53,31 +51,7 @@ done
 # 	11.0-RELEASE-p7
 
 sysrc -f /etc/rc.conf.d/jail jail_enable=YES
-
-cat << JAILCONF > /etc/jail.conf
-interface = "lo1";
-host.hostname = "\$name.local";
-path = "${MOUNTPOINT}/\$name";
-ip4.addr = 10.240.0.\$ip;
-mount.fstab = "${MOUNTPOINT}/\$name.fstab";
-osrelease = "11.0-RELEASE-p8";
-osreldate = 1100122;
-
-allow.raw_sockets = 1;
-
-exec.start = "/bin/sh /etc/rc";
-exec.stop = "/bin/sh /etc/rc.shutdown";
-exec.clean;
-exec.consolelog = "/var/log/jail_\${name}_console.log";
-
-mount.devfs;
-
-iwantmybox {
-    \$ip = 100;
-    mount.fstab = "";
-}
-
-JAILCONF
+cp etc/jail.conf /etc/jail.conf
 
 ################################################################################
 ## deploy host firewall
@@ -88,12 +62,15 @@ service pf restart || /usr/bin/true
 ################################################################################
 ## deploy local_unbound jails can access local caching DNS forwarder
 cp etc/unbound/conf.d/secure.conf /etc/unbound/conf.d/secure.conf
+echo "    access-control:       ${NETWORK}   allow" >> \
+    /etc/unbound/conf.d/secure.conf
+
 service local_unbound restart || /usr/bin/true
 
 ################################################################################
 ## init
 sudo service jail onestop
-zfs destroy -rR zroot/jails
+zfs destroy -rR zroot/jails || /usr/bin/true
 zfs create -o mountpoint=${MOUNTPOINT} ${DATASET}
 zfs create ${DATASET}/${VERSION}
 zfs snapshot -r ${DATASET}/${VERSION}@empty
@@ -124,8 +101,7 @@ nameserver ${NAMESERVER}
 options edns0
 RESOLV
 
-cat << RCCONF > ${TEMPLATE}/etc/rc.conf
-RCCONF
+touch ${TEMPLATE}/etc/rc.conf
 
 echo IDSIgnorePaths /etc/freebsd-update.conf >> ${TEMPLATE}/etc/freebsd-update.conf
 sed -i '' -Ee 's/^Components src/Components/'   ${TEMPLATE}/etc/freebsd-update.conf
