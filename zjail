@@ -1,4 +1,4 @@
-#!/bin/sh -e
+#!/bin/sh -ex
 reset
 
 ################################################################################
@@ -8,19 +8,31 @@ reset
 BASE=$(dirname $0)
 NAME=jails
 DATASET=zroot/${NAME}
-MOUNTPOINT=/${NAME}
-TEMPLATE=${MOUNTPOINT}/template
 SETS="base doc"
 VERSION=11.0-RELEASE
 ABI=FreeBSD:11:x86:64
 ABI=FreeBSD:11:amd64
 SOURCE=/downloads/$VERSION
+SITE=http://ftp.de.freebsd.org/pub/FreeBSD/releases/amd64/amd64/$VERSION
+MOUNTPOINT=/${NAME}
+TEMPLATE=${MOUNTPOINT}/${VERSION}
 
 ## jail template settings
-DOMAIN=$(hostname -d)
+DOMAIN=domarino.com
 NAMESERVER=10.240.0.1
 NETWORK=10.240.0.0/16
 PACKAGES="security/ca_root_nss ports-mgmt/pkg"
+
+################################################################################
+# fetch the bits
+if test ! -d $SOURCE; then
+    mkdir -p $SOURCE
+fi
+for set in ${SETS}; do
+    if test ! -f ${SOURCE}/${set}.txz; then
+        fetch -4a ${SITE}/$set.txz -o $SOURCE
+    fi
+done
 
 ################################################################################
 # host-specific things
@@ -34,7 +46,7 @@ PACKAGES="security/ca_root_nss ports-mgmt/pkg"
 # the magic numbers in osrelease and osreldate are taken from your
 # proposed release:
 # $ sysctl -a kern |grep kern.osrel
-# 	kern.osrelease: 11.0-RELEASE-p2
+# 	kern.osrelease: 11.0-RELEASE-p8
 # 	kern.osreldate: 1100122
 # $ freebsd-version -ku
 # 	11.0-RELEASE-p2
@@ -48,7 +60,7 @@ host.hostname = "\$name.local";
 path = "${MOUNTPOINT}/\$name";
 ip4.addr = 10.240.0.\$ip;
 mount.fstab = "${MOUNTPOINT}/\$name.fstab";
-osrelease = "11.0-RELEASE-p2";
+osrelease = "11.0-RELEASE-p8";
 osreldate = 1100122;
 
 allow.raw_sockets = 1;
@@ -60,89 +72,37 @@ exec.consolelog = "/var/log/jail_\${name}_console.log";
 
 mount.devfs;
 
-z2 {
-    \$ip = 2;
+iwantmybox {
+    \$ip = 100;
     mount.fstab = "";
 }
+
 JAILCONF
 
 ################################################################################
 ## deploy host firewall
 # see https://calomel.org/pf_config.html
-cat << PFCONF > /etc/pf.conf
-# /etc/pf.conf
-# macros
-protocols = "{ tcp, udp, icmp }"
-tcp_services    = "{ domain, http, https, smtp, 2200, couchdb }"
-udp_services    = "{ domain }"
-martians        = "{ 127.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12, \\
-                     10.0.0.0/8, 169.254.0.0/16, 192.0.2.0/24, \\
-                     0.0.0.0/8, 240.0.0.0/4 }"
-
-# interfaces
-extl_if = "wlan0"
-intl_if = "lo0"
-jail_if = "lo1"
-
-# networks
-intl_net = \$intl_if:network
-jail_net = \$jail_if:network
-internet = \$extl_if:network
-
-# limits
-# bigger state tables help erlang receive sockets faster
-# https://blog.tyk.nu/blog/fun-with-freebsd-listen-queue-overflow/
-set limit { states 80000, frags 20000, src-nodes 20000 }
-set timeout { adaptive.start 60000, adaptive.end 78000 }
-
-# clean packets are happy packets
-scrub in all
-
-# jails are allowed outbound connections but not inbound
-# these should be set up explicitly using spiped or similar
-nat on \$extl_if proto tcp from   \$jail_net to any -> (\$extl_if)
-# nat on \$extl_if proto tcp from \$jail_net to \$internet -> (\$extl_if)
-# nat on \$extl_if proto \$protocols from \$jail_net to !\$intl_net -> (\$extl_if)
-# nat on \$intl_if proto \$protocols from \$jail_net to !\$internet -> (\$intl_if)
-
-# you shall not pass
-# block drop in  quick on \$extl_if from \$martians to any
-# block drop out quick on \$extl_if from any to \$martians
-# block in all
-
-# o ye of little faith
-pass in all
-pass out all
-PFCONF
+cp etc/pf.conf /etc/pf.conf
+service pf restart || /usr/bin/true
 
 ################################################################################
 ## deploy local_unbound jails can access local caching DNS forwarder
-cat <<UNBOUND > /etc/unbound/conf.d/secure.conf
-# /etc/unbound/conf.d/secure.conf
-server:
-    interface-automatic:  yes
-    access-control:       ${NETWORK}   allow
-    access-control:       127.0.0.0/8   allow
-    access-control:       0.0.0.0/0     refuse
-    access-control:       ::1/64        allow
-    access-control:       ::/8          refuse
-UNBOUND
-service local_unbound restart
-service pf restart
+cp etc/unbound/conf.d/secure.conf /etc/unbound/conf.d/secure.conf
+service local_unbound restart || /usr/bin/true
 
 ################################################################################
 ## init
 sudo service jail onestop
 zfs destroy -rR zroot/jails
 zfs create -o mountpoint=${MOUNTPOINT} ${DATASET}
-zfs create ${DATASET}/template
-zfs snapshot -r ${DATASET}/template@empty
+zfs create ${DATASET}/${VERSION}
+zfs snapshot -r ${DATASET}/${VERSION}@empty
 
 ## unpack
 for set in ${SETS}; do
     tar -xf ${SOURCE}/$set.txz -C ${TEMPLATE}
 done
-zfs snapshot -r ${DATASET}/template@unpacked
+zfs snapshot -r ${DATASET}/${VERSION}@unpacked
 
 ################################################################################
 # tweak
@@ -172,7 +132,7 @@ sed -i '' -Ee 's/^Components src/Components/'   ${TEMPLATE}/etc/freebsd-update.c
 
 #sudo pkg -o ABI=${ABI} --chroot ${TEMPLATE} install -y ${PACKAGES}
 
-zfs snapshot -r ${DATASET}/template@tweaked
+zfs snapshot -r ${DATASET}/${VERSION}@tweaked
 
 ################################################################################
 # patch our template to save others the trouble
@@ -182,16 +142,16 @@ zfs snapshot -r ${DATASET}/template@tweaked
     --not-running-from-cron \
     fetch install \
     | tee /dev/null
-zfs snapshot -r ${DATASET}/template@patched
+zfs snapshot -r ${DATASET}/${VERSION}@patched
 
 ## check that nothing got tampered with in transit
 
 /usr/sbin/freebsd-update -b ${TEMPLATE} --currently-running ${VERSION} IDS
-zfs snapshot -r ${DATASET}/template@verified
+zfs snapshot -r ${DATASET}/${VERSION}@verified
 
 ################################################################################
 ## tidy up
-zfs snapshot -r ${DATASET}/template@ready
+zfs snapshot -r ${DATASET}/${VERSION}@ready
 
 cat << EOF
 OK
@@ -205,7 +165,7 @@ To create a new jail:
 Using z2 as an example:
 
 zfs destroy zroot/jails/z2
-zfs clone   zroot/jails/template@ready zroot/jails/z2
+zfs clone   zroot/jails/${VERSION}@ready zroot/jails/z2
 service jail status
 jls
 service jail start
