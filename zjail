@@ -101,8 +101,10 @@ nameserver ${NAMESERVER}
 options edns0
 RESOLV
 
+# avoid a warning on startup
 touch ${TEMPLATE}/etc/rc.conf
 
+# remove src and custom conf from freebsd-update check
 echo IDSIgnorePaths /etc/freebsd-update.conf >> ${TEMPLATE}/etc/freebsd-update.conf
 sed -i '' -Ee 's/^Components src/Components/'   ${TEMPLATE}/etc/freebsd-update.conf
 
