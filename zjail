@@ -17,8 +17,8 @@ TEMPLATE=${MOUNTPOINT}/${VERSION}
 
 ## jail template settings
 DOMAIN=domarino.com
-NAMESERVER=10.240.0.1
-NETWORK=10.240.0.0/16
+NAMESERVER=10.241.0.0
+NETWORK=10.241.0.0/16
 PACKAGES="security/ca_root_nss ports-mgmt/pkg"
 
 ################################################################################
