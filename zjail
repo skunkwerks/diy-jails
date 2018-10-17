@@ -7,7 +7,7 @@ BASE=$(dirname $0)
 NAME=jails
 DATASET=zroot/${NAME}
 SETS="base doc"
-VERSION=11.0-RELEASE
+VERSION=11.2-RELEASE
 ABI=FreeBSD:11:x86:64
 ABI=FreeBSD:11:amd64
 SOURCE=/downloads/$VERSION
@@ -16,7 +16,7 @@ MOUNTPOINT=/${NAME}
 TEMPLATE=${MOUNTPOINT}/${VERSION}
 
 ## jail template settings
-DOMAIN=domarino.com
+DOMAIN=skunkwerks.at
 NAMESERVER=10.241.0.0
 NETWORK=10.241.0.0/16
 PACKAGES="security/ca_root_nss ports-mgmt/pkg"
@@ -44,11 +44,11 @@ done
 # the magic numbers in osrelease and osreldate are taken from your
 # proposed release:
 # $ sysctl -a kern |grep kern.osrel
-# 	kern.osrelease: 11.0-RELEASE-p8
-# 	kern.osreldate: 1100122
+#   kern.osrelease: 11.2-RELEASE-p4
+#   kern.osreldate: 1102000
 # $ freebsd-version -ku
-# 	11.0-RELEASE-p2
-# 	11.0-RELEASE-p7
+# 	11.2-RELEASE-p4
+# 	11.2-RELEASE-p4
 
 sysrc -f /etc/rc.conf.d/jail jail_enable=YES
 cp etc/jail.conf /etc/jail.conf
